@@ -26,15 +26,24 @@ In order to filter to just the dblinks we may be concerned with, I ran the follo
 db_link and record_attributions:
 
 ```
-select d.*, r.recattrib_source_zdb_id 
-into genbank_0408
-from db_link_2024_04_08 d
-left join record_attribution_2024_04_08 r
+drop table if exists genbank_0306;
+select 
+	d.dblink_linked_recid, 
+	d.dblink_acc_num, 
+	d.dblink_info, 
+	d.dblink_zdb_id, 
+	d.dblink_length, 
+	d.dblink_fdbcont_zdb_id,
+	case when dblink_fdbcont_zdb_id = 'ZDB-FDBCONT-040412-37' then 'RNA' else 'DNA' end as acc_type,
+	r.recattrib_source_zdb_id 
+into genbank_0306
+from db_link_2024_03_06 d
+left join record_attribution_2024_03_06 r
 on r.recattrib_data_zdb_id = d.dblink_zdb_id
 where dblink_fdbcont_zdb_id in ('ZDB-FDBCONT-040412-37', 'ZDB-FDBCONT-040412-36') --genbank rna or dna
  and (dblink_linked_recid like 'ZDB-GENE%' or dblink_linked_recid like '%RNAG%');
  
-... ditto for genbank_0306
+... ditto for genbank_0408
 ```
 
 #### Exporting to CSV
@@ -45,3 +54,14 @@ echo "\copy (select * from genbank_0408) to 'genbank0408.csv' with csv header" |
 ```
 
 ### Next steps (this repo)
+
+Run the app.py command to perform analysis on these exports.
+
+```
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python app.py
+```
+
+Check the out directory for generated reports
