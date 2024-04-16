@@ -55,7 +55,10 @@ echo "\copy (select * from genbank_0408) to 'genbank0408.csv' with csv header" |
 
 ### Next steps (this repo)
 
+
+#### Run app
 Run the app.py command to perform analysis on these exports.
+Some of the queries may take a long time to run (~4 minutes).
 
 ```
 python3 -m venv venv
@@ -64,4 +67,13 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Check the out directory for generated reports
+#### Check output
+Check the `out` directory for generated reports.
+
+Multiple csv files are generated with information about db links that were lost or not between runs:
+
+- gene_accession_pairs_lost.csv : all the cases where a gene used to have an accession, but no longer does (regardless of attribution)
+- gene_accession_attribs_lost.csv : all the cases where an attribution was lost, though the gene/genbank sequence association still exists with another attribution
+- gene_accession_attribs_kept.csv : all the gene/genbank links that were preserved between runs.
+
+out/all.xlsx contains all the csv files as xlsx sheets

@@ -34,7 +34,6 @@ class ReportRunner:
         self.run_query('gene_accession_attribs_lost', self.gene_accession_attribs_lost_query())
         self.run_query('gene_accession_attribs_kept', self.gene_accession_attribs_kept_query())
 
-
     def run_query(self, report, query):
         print(f"Creating csv: out/{report}.csv")
         df = self.query_as_df(query, report)
@@ -49,8 +48,18 @@ class ReportRunner:
 
         #First create the xlsx file
         with pd.ExcelWriter("out/all.xlsx") as writer:
-            #add worksheet called default
-            pd.DataFrame().to_excel(writer, sheet_name='default', index=False)
+            #add worksheet called descriptions for describing the other sheets
+            descriptions = [
+                ('gene_accession_pairs_lost', 'all the cases where a gene used to have an accession, but no longer does (regardless of attribution)'),
+                ('gene_accession_attribs_lost', 'all the cases where an attribution was lost, though the gene/genbank sequence association still exists with another attribution'),
+                ('gene_accession_attribs_kept', 'all the gene/genbank links that were preserved between runs.'),
+                ('', ''),
+                ('report source: https://github.com/rtaylorzfin/zfin-9142', '')
+            ]
+            df = pd.DataFrame(descriptions, columns=['sheet name', 'description'])
+            df.to_excel(writer, sheet_name='descriptions', index=False)
+            self.auto_adjust_column_widths(df, 'descriptions', writer)
+
 
         #append all reports
         for report in self.report_files:
@@ -59,18 +68,10 @@ class ReportRunner:
 
                 # Add hyperlink column
                 df['link'] = df['gene'].apply(lambda x: f'=HYPERLINK("https://zfin.org/{x}#sequences", "link")')
-
                 df.to_excel(writer, sheet_name=report, index=False)
 
-                # Auto-adjust columns' width
-                for column in df:
-                    column_length = max(df[column].astype(str).map(len).max(), len(column))
-                    col_idx = df.columns.get_loc(column)
-                    writer.sheets[report].column_dimensions[writer.sheets[report].cell(row=1, column=col_idx + 1).column_letter].width = column_length
-
-        #remove 'default' sheet
-        with pd.ExcelWriter("out/all.xlsx", mode='a') as writer:
-            writer.book.remove(writer.book['default'])
+                # Adjust columns to fit content
+                self.auto_adjust_column_widths(df, report, writer)
 
     def gene_accession_pairs_lost_query(self):
         query = """
@@ -113,6 +114,14 @@ class ReportRunner:
         df = pd.read_sql_query(query, conn)
         conn.close()
         return df
+
+    def auto_adjust_column_widths(self, df, report, writer):
+        # Auto-adjust columns' width
+        for column in df:
+            column_length = max(df[column].astype(str).map(len).max(), len(column))
+            col_idx = df.columns.get_loc(column)
+            writer.sheets[report].column_dimensions[
+                writer.sheets[report].cell(row=1, column=col_idx + 1).column_letter].width = column_length
 
     def nicely_formatted_time_interval(self, number_seconds):
         hours = int(number_seconds // 3600)

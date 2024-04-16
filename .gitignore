@@ -2,3 +2,6 @@
 __pycache__
 notbook42.iml 
 /out/
+genbanks.db
+*.db-journal
+output.sqlite
