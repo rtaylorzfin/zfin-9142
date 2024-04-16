@@ -1,2 +1,3 @@
 csv-to-sqlite
 openpyxl
+pandas
