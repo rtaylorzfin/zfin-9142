@@ -24,6 +24,8 @@ class ReportRunner:
         print("Done after: " + nicely_formatted)
 
     def create_sqlite_from_csvs(self):
+        pass
+    def _create_sqlite_from_csvs(self):
         #drop sqlite db if exists
         if os.path.exists(SQLITE_DB_PATH):
             os.remove(SQLITE_DB_PATH)
@@ -34,10 +36,10 @@ class ReportRunner:
 
     def initialize_query_descriptions(self):
         self.query_descriptions = [
-            {'name': 'gene_accession_pairs_lost', 'description': 'all the cases where a gene used to have an accession, but no longer does (regardless of attribution)', 'definition': self.gene_accession_pairs_lost_query()},
-            {'name': 'gene_accession_attribs_lost', 'description': 'all the cases where an attribution was lost, though the gene/genbank sequence association still exists with another attribution', 'definition': self.gene_accession_attribs_lost_query()},
-            {'name': 'gene_accession_attribs_kept', 'description': 'all the gene/genbank links that were preserved between runs.', 'definition': self.gene_accession_attribs_kept_query()},
-            {'name': 'old_gene_acc_attrib_vs_new', 'description': 'all the cases where an attribution was lost, and the gene/genbank sequence association was preserved with a different attribution', 'definition': self.compare_old_gene_acc_attrib_to_new_attrib_query()},
+            # {'name': 'gene_accession_pairs_lost', 'description': 'all the cases where a gene used to have an accession, but no longer does (regardless of attribution)', 'definition': self.gene_accession_pairs_lost_query()},
+            # {'name': 'gene_accession_attribs_lost', 'description': 'all the cases where an attribution was lost, though the gene/genbank sequence association still exists with another attribution', 'definition': self.gene_accession_attribs_lost_query()},
+            # {'name': 'gene_accession_attribs_kept', 'description': 'all the gene/genbank links that were preserved between runs.', 'definition': self.gene_accession_attribs_kept_query()},
+            # {'name': 'old_gene_acc_attrib_vs_new', 'description': 'all the cases where an attribution was lost, and the gene/genbank sequence association was preserved with a different attribution', 'definition': self.compare_old_gene_acc_attrib_to_new_attrib_query()},
             {'name': 'attributions_to_fix', 'description': 'fix these attributions by reverting them from ZDB-PUB-230516-87 to ZDB-PUB-130725-2 (as they used to be)', 'definition': self.attributions_to_fix_query()},
             {'name': 'attributions_replaced_counts', 'description': 'counts of how many instances of attribution 1 was swapped for attribution 2', 'definition': self.attributions_replaced_counts_query()}
         ]
@@ -77,8 +79,9 @@ class ReportRunner:
             with pd.ExcelWriter(OUTPUT_EXCEL_PATH, mode='a') as writer:
                 df = pd.read_csv(f"out/{report}.csv")
 
-                # Add hyperlink column
-                df['link'] = df['gene'].apply(lambda x: f'=HYPERLINK("https://zfin.org/{x}#sequences", "link")')
+                # Add hyperlink column if df['gene'] exists
+                if 'gene' in df.columns:
+                    df['link'] = df['gene'].apply(lambda x: f'=HYPERLINK("https://zfin.org/{x}#sequences", "link")')
                 df.to_excel(writer, sheet_name=report, index=False)
 
                 # Adjust columns to fit content
@@ -127,19 +130,28 @@ class ReportRunner:
 
     def attributions_to_fix_query(self):
         query = """
-        select gene, abbr, acc, acc_type from old_gene_acc_attrib_vs_new where newpubs = 'ZDB-PUB-230516-87' and oldpub = 'ZDB-PUB-130725-2'
+        select gene, abbr, acc, acc_type, newpubs as from_pub, oldpub as to_pub from old_gene_acc_attrib_vs_new where (oldpub, newpubs) in (
+            ('ZDB-PUB-130725-2', 'ZDB-PUB-230516-87'),
+            ('ZDB-PUB-130725-2', 'ZDB-PUB-020723-3'),
+            ('ZDB-PUB-130725-2', 'ZDB-PUB-030703-1'),
+            ('ZDB-PUB-130725-2', 'ZDB-PUB-030905-2'),
+            ('ZDB-PUB-020723-3', 'ZDB-PUB-020723-5')
+        ) order by oldpub, newpubs, gene, acc
         """
+        return query
 
     def attributions_replaced_counts_query(self):
         query = """
         select oldpub, newpubs, count(*) from old_gene_acc_attrib_vs_new where newpubs <> 'ZDB-PUB-230516-87' or oldpub <> 'ZDB-PUB-130725-2' group by oldpub, newpubs
         """
+        return query
 
     def query_as_df(self, query, tablename):
         conn = sqlite3.connect("genbanks.db")
 
         #create a table for analysis afterwards
-        conn.execute(f"create table {tablename} as {query}")
+        sql = f"create table if not exists {tablename} as {query}"
+        conn.execute(sql)
 
         df = pd.read_sql_query(query, conn)
         conn.close()
