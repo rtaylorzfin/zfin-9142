@@ -38,7 +38,8 @@ class ReportRunner:
             {'name': 'gene_accession_attribs_lost', 'description': 'all the cases where an attribution was lost, though the gene/genbank sequence association still exists with another attribution', 'definition': self.gene_accession_attribs_lost_query()},
             {'name': 'gene_accession_attribs_kept', 'description': 'all the gene/genbank links that were preserved between runs.', 'definition': self.gene_accession_attribs_kept_query()},
             {'name': 'old_gene_acc_attrib_vs_new', 'description': 'all the cases where an attribution was lost, and the gene/genbank sequence association was preserved with a different attribution', 'definition': self.compare_old_gene_acc_attrib_to_new_attrib_query()},
-            {'name': 'attributions_to_fix', 'description': 'fix these attributions by reverting them from ZDB-PUB-230516-87 to ZDB-PUB-130725-2 (as they used to be)', 'definition': self.attributions_to_fix_query()}
+            {'name': 'attributions_to_fix', 'description': 'fix these attributions by reverting them from ZDB-PUB-230516-87 to ZDB-PUB-130725-2 (as they used to be)', 'definition': self.attributions_to_fix_query()},
+            {'name': 'attributions_replaced_counts', 'description': 'counts of how many instances of attribution 1 was swapped for attribution 2', 'definition': self.attributions_replaced_counts_query()}
         ]
 
     def run_queries(self):
@@ -120,13 +121,18 @@ class ReportRunner:
                 select gaal.gene, gaal.acc, gaal.pub as oldpub, gaal.acc_type, gaal.abbr, group_concat(recattrib_source_zdb_id, ',') as newpubs
                 from gene_accession_attribs_lost gaal left join genbank0408 
                 on gene=dblink_linked_recid and acc=dblink_acc_num and recattrib_source_zdb_id <> pub
-                group by gaal.gene, gaal.acc, gaal.pub, gaal.acc_type, gaal.abbr, recattrib_source_zdb_id 
+                group by gaal.gene, gaal.acc, gaal.pub, gaal.acc_type, gaal.abbr 
         """
         return query
 
     def attributions_to_fix_query(self):
         query = """
         select gene, abbr, acc, acc_type from old_gene_acc_attrib_vs_new where newpubs = 'ZDB-PUB-230516-87' and oldpub = 'ZDB-PUB-130725-2'
+        """
+
+    def attributions_replaced_counts_query(self):
+        query = """
+        select oldpub, newpubs, count(*) from old_gene_acc_attrib_vs_new where newpubs <> 'ZDB-PUB-230516-87' or oldpub <> 'ZDB-PUB-130725-2' group by oldpub, newpubs
         """
 
     def query_as_df(self, query, tablename):
