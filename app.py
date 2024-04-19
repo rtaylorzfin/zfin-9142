@@ -4,7 +4,7 @@ import os
 import pandas as pd
 
 SQLITE_DB_PATH = "genbanks.db"
-OUTPUT_EXCEL_PATH = "out/all.xlsx"
+OUTPUT_EXCEL_PATH = "out/genbanks_accessions_change_report.xlsx"
 
 class ReportRunner:
     report_files = []
@@ -37,7 +37,8 @@ class ReportRunner:
             {'name': 'gene_accession_pairs_lost', 'description': 'all the cases where a gene used to have an accession, but no longer does (regardless of attribution)', 'definition': self.gene_accession_pairs_lost_query()},
             {'name': 'gene_accession_attribs_lost', 'description': 'all the cases where an attribution was lost, though the gene/genbank sequence association still exists with another attribution', 'definition': self.gene_accession_attribs_lost_query()},
             {'name': 'gene_accession_attribs_kept', 'description': 'all the gene/genbank links that were preserved between runs.', 'definition': self.gene_accession_attribs_kept_query()},
-            {'name': 'old_gene_acc_attrib_vs_new', 'description': 'all the cases where an attribution was lost, and the gene/genbank sequence association was preserved with a different attribution', 'definition': self.compare_old_gene_acc_attrib_to_new_attrib_query()}
+            {'name': 'old_gene_acc_attrib_vs_new', 'description': 'all the cases where an attribution was lost, and the gene/genbank sequence association was preserved with a different attribution', 'definition': self.compare_old_gene_acc_attrib_to_new_attrib_query()},
+            {'name': 'attributions_to_fix', 'description': 'fix these attributions by reverting them from ZDB-PUB-230516-87 to ZDB-PUB-130725-2 (as they used to be)', 'definition': self.attributions_to_fix_query()}
         ]
 
     def run_queries(self):
@@ -122,6 +123,11 @@ class ReportRunner:
                 group by gaal.gene, gaal.acc, gaal.pub, gaal.acc_type, gaal.abbr, recattrib_source_zdb_id 
         """
         return query
+
+    def attributions_to_fix_query(self):
+        query = """
+        select gene, abbr, acc, acc_type from old_gene_acc_attrib_vs_new where newpubs = 'ZDB-PUB-230516-87' and oldpub = 'ZDB-PUB-130725-2'
+        """
 
     def query_as_df(self, query, tablename):
         conn = sqlite3.connect("genbanks.db")
