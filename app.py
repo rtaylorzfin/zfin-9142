@@ -36,11 +36,11 @@ class ReportRunner:
 
     def initialize_query_descriptions(self):
         self.query_descriptions = [
-            # {'name': 'gene_accession_pairs_lost', 'description': 'all the cases where a gene used to have an accession, but no longer does (regardless of attribution)', 'definition': self.gene_accession_pairs_lost_query()},
-            # {'name': 'gene_accession_attribs_lost', 'description': 'all the cases where an attribution was lost, though the gene/genbank sequence association still exists with another attribution', 'definition': self.gene_accession_attribs_lost_query()},
-            # {'name': 'gene_accession_attribs_kept', 'description': 'all the gene/genbank links that were preserved between runs.', 'definition': self.gene_accession_attribs_kept_query()},
-            # {'name': 'old_gene_acc_attrib_vs_new', 'description': 'all the cases where an attribution was lost, and the gene/genbank sequence association was preserved with a different attribution', 'definition': self.compare_old_gene_acc_attrib_to_new_attrib_query()},
-            {'name': 'attributions_to_fix', 'description': 'fix these attributions by reverting them from ZDB-PUB-230516-87 to ZDB-PUB-130725-2 (as they used to be)', 'definition': self.attributions_to_fix_query()},
+            {'name': 'gene_accession_pairs_lost', 'description': 'all the cases where a gene used to have an accession, but no longer does (regardless of attribution)', 'definition': self.gene_accession_pairs_lost_query()},
+            {'name': 'gene_accession_attribs_lost', 'description': 'all the cases where an attribution was lost, though the gene/genbank sequence association still exists with another attribution', 'definition': self.gene_accession_attribs_lost_query()},
+            {'name': 'gene_accession_attribs_kept', 'description': 'all the gene/genbank links that were preserved between runs.', 'definition': self.gene_accession_attribs_kept_query()},
+            {'name': 'old_gene_acc_attrib_vs_new', 'description': 'all the cases where an attribution was lost, and the gene/genbank sequence association was preserved with a different attribution', 'definition': self.compare_old_gene_acc_attrib_to_new_attrib_query()},
+            {'name': 'attributions_to_fix', 'description': 'fix these attributions by reverting them from `from_pub` `to_pub` (as they used to be)', 'definition': self.attributions_to_fix_query()},
             {'name': 'attributions_replaced_counts', 'description': 'counts of how many instances of attribution 1 was swapped for attribution 2', 'definition': self.attributions_replaced_counts_query()}
         ]
 
@@ -142,7 +142,7 @@ class ReportRunner:
 
     def attributions_replaced_counts_query(self):
         query = """
-        select oldpub, newpubs, count(*) from old_gene_acc_attrib_vs_new where newpubs <> 'ZDB-PUB-230516-87' or oldpub <> 'ZDB-PUB-130725-2' group by oldpub, newpubs
+        select oldpub, newpubs, count(*) as count from old_gene_acc_attrib_vs_new where newpubs <> 'ZDB-PUB-230516-87' or oldpub <> 'ZDB-PUB-130725-2' group by oldpub, newpubs
         """
         return query
 
