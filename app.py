@@ -17,15 +17,16 @@ class ReportRunner:
             os.mkdir("out")
         self.create_sqlite_from_csvs()
         self.initialize_query_descriptions()
+        self.build_intermediate_tables()
         self.run_queries()
         self.combine_all_csvs_into_one_xlsx()
         time_passed = pd.Timestamp.now() - start_time
         nicely_formatted = self.nicely_formatted_time_interval(time_passed.total_seconds())
         print("Done after: " + nicely_formatted)
 
-    def create_sqlite_from_csvs(self):
-        pass
     def _create_sqlite_from_csvs(self):
+        pass
+    def create_sqlite_from_csvs(self):
         #drop sqlite db if exists
         if os.path.exists(SQLITE_DB_PATH):
             os.remove(SQLITE_DB_PATH)
@@ -36,19 +37,93 @@ class ReportRunner:
 
     def initialize_query_descriptions(self):
         self.query_descriptions = [
+            {'name': 'old_vs_new', 'description': 'For every gene and accession pair, show all old attributions and all new attributions (3/6/24 vs 4/8/24).', 'definition': self.old_vs_new_query()},
+            {'name': 'changed_counts', 'description': 'How many accessions had their attribution changed from oldpub to newpub.', 'definition': self.changed_attribs_count_query()},
+            {'name': 'proposed_fixes', 'description': 'SQL queries that we can use to revert any changed attributions', 'definition': self.proposed_fixes_query()},
             {'name': 'gene_accession_pairs_lost', 'description': 'all the cases where a gene used to have an accession, but no longer does (regardless of attribution)', 'definition': self.gene_accession_pairs_lost_query()},
             {'name': 'gene_accession_attribs_lost', 'description': 'all the cases where an attribution was lost, though the gene/genbank sequence association still exists with another attribution', 'definition': self.gene_accession_attribs_lost_query()},
-            {'name': 'gene_accession_attribs_kept', 'description': 'all the gene/genbank links that were preserved between runs.', 'definition': self.gene_accession_attribs_kept_query()},
-            {'name': 'old_gene_acc_attrib_vs_new', 'description': 'all the cases where an attribution was lost, and the gene/genbank sequence association was preserved with a different attribution', 'definition': self.compare_old_gene_acc_attrib_to_new_attrib_query()},
-            {'name': 'attributions_to_fix', 'description': 'fix these attributions by reverting them from `from_pub` `to_pub` (as they used to be)', 'definition': self.attributions_to_fix_query()},
-            {'name': 'attributions_replaced_counts', 'description': 'counts of how many instances of attribution 1 was swapped for attribution 2', 'definition': self.attributions_replaced_counts_query()}
+            {'name': 'gene_accession_attribs_kept', 'description': 'all the gene/genbank links that were preserved between runs.', 'definition': self.gene_accession_attribs_kept_query()}
         ]
+
+    def build_intermediate_tables(self):
+        # Create "old" table as a simplified version of genbank0306
+        sql = """
+        select dblink_linked_recid as gene, 
+        dblink_acc_num as acc, 
+        recattrib_source_zdb_id as pub, 
+        dblink_linked_recid || ':' || dblink_acc_num as gene_acc_hash  
+        from genbank0306;
+        """
+        self.query_as_df(sql,"old")
+
+        # Create "new" table as a simplified version of genbank0408
+        sql = """
+        select dblink_linked_recid as gene,
+        dblink_acc_num as acc,
+        recattrib_source_zdb_id as pub,
+        dblink_linked_recid || ':' || dblink_acc_num as gene_acc_hash
+        from genbank0408;
+        """
+        self.query_as_df(sql,"new")
+
+        # Create common attributions:
+        sql = """
+        select old.gene_acc_hash, old.pub
+        from old
+        inner join new on old.gene_acc_hash = new.gene_acc_hash and old.pub = new.pub
+        """
+        self.query_as_df(sql,"common_attribs")
+
+        # Create lost attributions:
+        sql = """
+        select gene_acc_hash, group_concat(pub) as pub from
+        (select old.gene_acc_hash, old.pub 
+        from old
+        left join new on old.gene_acc_hash = new.gene_acc_hash and old.pub = new.pub
+        where new.pub is null)
+        group by gene_acc_hash
+        """
+        self.query_as_df(sql,"lost_attribs")
+
+        # Create gained attributions:
+        sql = """
+        select gene_acc_hash, group_concat(pub) as pub from
+        (select new.gene_acc_hash, new.pub
+        from new
+        left join old on new.gene_acc_hash = old.gene_acc_hash and new.pub = old.pub
+        where old.pub is null)
+        group by gene_acc_hash
+        """
+        self.query_as_df(sql,"gained_attribs")
+
+        # All hashes old and new
+        sql = """
+        select distinct gene, acc, gene_acc_hash from (
+        select gene, acc, gene_acc_hash from old
+        union
+        select gene, acc, gene_acc_hash from new )
+        """
+        self.query_as_df(sql, "all_hashes")
+
+        # Combined final report:
+        sql = """
+        select * from (
+        select all_hashes.gene, all_hashes.acc, old.pub as oldpub, new.pub as newpub
+        from all_hashes
+        left join lost_attribs as old on all_hashes.gene_acc_hash = old.gene_acc_hash 
+        left join gained_attribs as new on all_hashes.gene_acc_hash = new.gene_acc_hash
+        )
+        where oldpub is not null or newpub is not null 
+        order by gene, acc        
+        """
+        self.query_as_df(sql, "old_vs_new")
+
 
     def run_queries(self):
         for q in self.query_descriptions:
-            self.run_query(q['name'], q['definition'])
+            self.run_query_to_csv(q['name'], q['definition'])
 
-    def run_query(self, report, query):
+    def run_query_to_csv(self, report, query):
         print(f"Creating csv: out/{report}.csv")
         df = self.query_as_df(query, report)
         df.to_csv(f"out/{report}.csv", index=False)
@@ -119,35 +194,28 @@ class ReportRunner:
         """
         return query
 
-    def compare_old_gene_acc_attrib_to_new_attrib_query(self):
+    def old_vs_new_query(self):
         query = """
-                select gaal.gene, gaal.acc, gaal.pub as oldpub, gaal.acc_type, gaal.abbr, group_concat(recattrib_source_zdb_id, ',') as newpubs
-                from gene_accession_attribs_lost gaal left join genbank0408 
-                on gene=dblink_linked_recid and acc=dblink_acc_num and recattrib_source_zdb_id <> pub
-                group by gaal.gene, gaal.acc, gaal.pub, gaal.acc_type, gaal.abbr 
+        select * from old_vs_new order by gene, acc        
         """
         return query
 
-    def attributions_to_fix_query(self):
-        query = """
-        select gene, abbr, acc, acc_type, newpubs as from_pub, oldpub as to_pub from old_gene_acc_attrib_vs_new where (oldpub, newpubs) in (
-            ('ZDB-PUB-130725-2', 'ZDB-PUB-230516-87'),
-            ('ZDB-PUB-130725-2', 'ZDB-PUB-020723-3'),
-            ('ZDB-PUB-130725-2', 'ZDB-PUB-030703-1'),
-            ('ZDB-PUB-130725-2', 'ZDB-PUB-030905-2'),
-            ('ZDB-PUB-020723-3', 'ZDB-PUB-020723-5')
-        ) order by oldpub, newpubs, gene, acc
+    def changed_attribs_count_query(self):
+        sql = """
+        select oldpub, newpub, count(*) from old_vs_new group by oldpub, newpub        
         """
-        return query
+        return sql
 
-    def attributions_replaced_counts_query(self):
-        query = """
-        select oldpub, newpubs, count(*) as count from old_gene_acc_attrib_vs_new where newpubs <> 'ZDB-PUB-230516-87' or oldpub <> 'ZDB-PUB-130725-2' group by oldpub, newpubs
+    def proposed_fixes_query(self):
+        sql = """
+        select 'update record_attribution set recattrib_source_zdb_id = ''' || oldpub || ''' where recattrib_source_zdb_id = ''' || newpub || '''' || 
+        ' and exists (select 1 from db_link where dblink_zdb_id = recattrib_data_zdb_id ' || 
+        ' and dblink_linked_recid = ''' || gene || ''' and dblink_acc_num = ''' || acc || ''' );' as fix, gene, acc, oldpub, newpub from old_vs_new where oldpub is not null and oldpub <> '' and newpub is not null and newpub not like '%,%'  ;        
         """
-        return query
+        return sql
 
     def query_as_df(self, query, tablename):
-        conn = sqlite3.connect("genbanks.db")
+        conn = sqlite3.connect(SQLITE_DB_PATH)
 
         #create a table for analysis afterwards
         sql = f"create table if not exists {tablename} as {query}"
